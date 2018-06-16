@@ -2,12 +2,12 @@
 
 //SETUP
 /*
-Hardware
+  Hardware
   1. solenoid relay pins
   2. light relay pins
   3. light PWM pins (must be analog)
 
-Sketch
+  Sketch
   1. define proper pins
   2. set times, set pressures, set light %,
 
@@ -35,17 +35,17 @@ Chrono printChrono;
 Chrono secsChrono(Chrono::SECONDS);
 
 
-
 //water
-int solenoidPin[] = {4, 5, 6, 7};
+int solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
 bool solenoidState[] = {false, false, false, false};
 bool anySolOn = false;
 
-unsigned long solenoidOn = 2000; //on for millisecs
+unsigned long solenoidOn = 2000; //on for millisecs, make adjustable by 1/10ths of sec
 unsigned long solenoidOff = 5000; //off
-Chrono solenoidChronoOff;
-Chrono solenoidChronoOn[4];
-//int solenoidJustRan[] = {false, false, false, false};
+unsigned long solenoidOnNight = 1000; //on for millisecs
+unsigned long solenoidOffNight = 10000; //off
+Chrono solenoidChronoOff, solenoidChronoOn[4];
+unsigned long solenoidOnTimer, solenoidOffTimer;   //conditional holders for night/day value
 
 //pump
 int pressurePin = 18;
@@ -57,9 +57,30 @@ float pressurePsi = 90; //starts at 90 to avoid pump instant-on
 int pressureLow = 80;
 int pressureHigh = 125;
 
+//time
+tmElements_t currentTm, tmLightStart, tmLightEnd;
+time_t currentT, tLightStart, tLightEnd;
+
 //light
-int lightPin[4] = {9, 10, 11, 12};
-int lightPWMPin[4] = {13, 14, 15, 16};
+byte startHour = 8;
+byte startMinute = 15;
+byte endHour = 14;
+byte endMinute = 20;
+boolean needsUpdate = 1;  // retrigger this on pot adjust of light times
+
+int lightPin[4] = {26, 27, 28, 29}; //light out pins (digital out) [SET FOR MEGA]
+int lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
+
+int lightIntensity = 90; //will receive value from pot adjust
+int lightIntensityLast;
+
+bool lightState[] = {false, false, false, false};
+bool anyLit = false;
+Chrono lightChrono;
+
+//debug
+int debugReadPin[4] = {97, 96, 95, 94};
+int debugReading;
 
 
 /**********************************************************************/
@@ -96,6 +117,12 @@ void setup() {
   for (int i; i < 4; i++) {
     pinMode(lightPWMPin[i], OUTPUT);
   }
+
+  //debug READING
+  for (int i; i < 4; i++) {
+    pinMode(debugReadPin[i], INPUT);
+  }
+  //END debug
 }
 
 //adjustTime(43200);
@@ -105,16 +132,17 @@ void setup() {
 void loop() {
   /*** Status/Readings ***/
   if (printChrono.hasPassed(1000)) {
-//    time-
+    //    time-
 
     Serial.println();
     printMinLengthString("Date:");
     printDate();
-    
+
     Serial.println();
     printMinLengthString("Time:");
     printTime();
-    
+    //    Serial.println(now());
+
     Serial.println();
     printMinLengthString("Uptime:");
     printUptime();
@@ -127,14 +155,29 @@ void loop() {
       Serial.print(" ");
     }
     Serial.println();
-    //
+
     printMinLengthString("SolenoidOff elapsed:");
     Serial.println(solenoidChronoOff.elapsed());
     printChrono.restart();
+
+    printMinLengthString("PWM States:");
+    printLightPWM();
+    Serial.println();
   }
 
   /*** WATERING CYCLE ***/
   //water loop 3.0
+
+  if (anyLit) {
+    solenoidOnTimer = solenoidOn;
+    solenoidOffTimer = solenoidOff;
+  }
+  else {
+    solenoidOnTimer = solenoidOnNight;
+    solenoidOffTimer = solenoidOffNight;
+  }
+
+
   for (int i = 0; i < 4; i++) {
     toggleSolenoidOn(i);
   }
@@ -166,6 +209,9 @@ void loop() {
     Serial.println("  Mpa");
     delay(500);
   */
+  /*** TIME (integrated for Lighting) ***/
+
+  updateLightSchedule();
 
   /*** LIGHTING ***/
   //PWM
@@ -175,7 +221,15 @@ void loop() {
   //may invert duty cycle
   //try without the voltage regulator from battery, since the driver may output its own 10v supply!
 
+
   //  analogWrite(lightPWMPin[i],
+  if (lightIntensity != lightIntensityLast) {
+    for (int i = 0; i < 4; i++) {
+      analogWrite(lightPin[i], map(lightIntensity, 0, 100, 0, 255));
+      lightIntensityLast = lightIntensity;
+    }
+  }
+
 
   /*** TEMPERATURE ***/
   //
@@ -200,7 +254,7 @@ void printDate() {
 
 void printTime() {
   char timeDisp[20];
-  String amPm[] = {" AM", " PM"}; 
+  String amPm[] = {" AM", " PM"};
   sprintf(timeDisp, "%02d:%02d:%02d", hourFormat12(), minute(), second());
   Serial.print(timeDisp);
   Serial.print(amPm[isPM()]);
@@ -216,14 +270,15 @@ void printUptime() {
   Serial.print(upTimeDisp);
 }
 
+
 void toggleSolenoidOn(int x) {
   int minZero = max(x - 1, 0); //ensures >=0 array pointer
   //not already on? previous run finished? previous not running?
-  if (!solenoidState[x] && solenoidChronoOn[x].hasPassed(solenoidOn * 4 + solenoidOff) && !solenoidState[minZero] && !anySolOn) {
+  if (!solenoidState[x] && solenoidChronoOn[x].hasPassed(solenoidOnTimer * 4 + solenoidOffTimer) && !solenoidState[minZero] && !anySolOn) {
     digitalWrite (solenoidPin[x], LOW);// write on
     anySolOn = !anySolOn; //toggle bool
     solenoidState[x] = !solenoidState[x];// toggle bool
-    solenoidChronoOn[x].restart(); //reset solOn (solOn time = solenoidOn*4 1000*4+solOff)
+    solenoidChronoOn[x].restart(); //reset solOn (solOn time = solenoidOnTimer*4 1000*4+solOff)
     //debug block
     //    Serial.print(x);
     //    Serial.println(" on.");
@@ -232,7 +287,7 @@ void toggleSolenoidOn(int x) {
 
 void toggleSolenoidOff(int x) {
   //on? and long enough?
-  if (solenoidState[x] && solenoidChronoOn[x].hasPassed(solenoidOn)) {
+  if (solenoidState[x] && solenoidChronoOn[x].hasPassed(solenoidOnTimer)) {
     digitalWrite (solenoidPin[x], HIGH);// write off
     anySolOn = !anySolOn; //toggle bool
     solenoidState[x] = !solenoidState[x];// toggle bool
@@ -249,6 +304,45 @@ void toggleSolenoidOff(int x) {
     }
   }
 }
+
+
+void printLightPWM() {
+  //  char dateDisp[20];
+  //  sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
+  char pwmDisp[20];
+  sprintf(pwmDisp, "%-4d%-4d%-4d%-4d", analogRead(debugReadPin[0]), analogRead(debugReadPin[1]), analogRead(debugReadPin[2]), analogRead(debugReadPin[3]));
+  Serial.print(pwmDisp);
+  //  for (int i = 0; i < 4; i++) {
+  //    Serial.print(analogRead(lightPin[i]);
+  //  }
+}
+
+void updateLightSchedule() {
+  // time_t currentT = RTC.get();
+  breakTime(now(), currentTm);
+  if (needsUpdate) {
+    memcpy(&tmLightStart, &currentTm, sizeof(currentTm));
+    memcpy(&tmLightEnd, &currentTm, sizeof(currentTm));
+    // change auxiliary structures to meet your start and end schedule
+    tmLightStart.Hour = startHour;
+    tmLightStart.Minute = startMinute;
+    tmLightStart.Second = 0;
+    tmLightEnd.Hour = endHour;
+    tmLightEnd.Minute = endMinute;
+    tmLightEnd.Second = 0;
+    // reverse process to get timestamps
+    tLightStart = makeTime(tmLightStart);
+    tLightEnd = makeTime(tmLightEnd);
+
+    // check if end time is past midnight and correct if needed
+    if (startHour > endHour) //past midnight correction
+      tLightEnd = tLightEnd + SECS_PER_DAY;
+  }
+
+}
+
+
+
 
 //interrupt functions
 void buttonISR() {
