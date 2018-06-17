@@ -58,14 +58,14 @@
 ///////////////////////////////
 
 // interrupt0 pin for control pot
-int interruptButtonPin = 2;
+byte interruptButtonPin = 2;
 
 Chrono printChrono;
 Chrono secsChrono(Chrono::SECONDS);
 
 
 //water
-int solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
+byte solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
 bool solenoidState[] = {false, false, false, false};
 bool anySolOn = false;
 
@@ -77,8 +77,8 @@ Chrono solenoidChronoOff, solenoidChronoOn[4];
 unsigned long solenoidOnTimer, solenoidOffTimer;   //conditional holders for night/day value
 
 //pump
-int pressurePin = 18;
-int pumpPin = 8;
+byte pressurePin = 18;
+byte pumpPin = 8;
 
 float pressureReading;
 float pressurePsi = 90; //starts at 90 to avoid pump instant-on
@@ -97,17 +97,17 @@ boolean lightState;
 //bool lightState[] = {false, false, false, false};
 //bool anyLit = false;
 
-int lightPin[4] = {26, 27, 28, 29}; //light out pins (digital out) [SET FOR MEGA]
-int lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
+byte lightPin[4] = {26, 27, 28, 29}; //light out pins (digital out) [SET FOR MEGA]
+byte lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
 
-int lightIntensity = 90; //will receive value from pot adjust
-int lightIntensityLast;
+byte lightIntensity = 90; //will receive value from pot adjust, should cap at 100
+byte lightIntensityLast;
 
 Chrono lightChrono;
 
 //debug
-int debugReadPin[4] = {97, 96, 95, 94};
-int debugReading;
+byte debugReadPin[4] = {97, 96, 95, 94};
+byte debugReading;
 
 
 ///////////////////////////////
