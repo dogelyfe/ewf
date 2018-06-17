@@ -13,6 +13,32 @@
 
 */
 
+//DISPLAY
+/*
+  Status
+    Date
+    Time
+    Temp
+    Humidity
+
+  Configuratble
+    Current Time:
+    Light On Time
+    Light Off Time
+    Light Intensity
+    Solenoid On Cycle
+    Solenoid Off Cycle
+    Pump Pressure
+
+  Component States
+    Light
+    LightIntensity
+    Solenoids
+    Pump
+    Fan
+    AC
+    Humidifier
+*/
 #include <ClickEncoder.h>
 
 #include <URTouchCD.h>
@@ -27,7 +53,10 @@
 #include <Time.h>
 #include <TimeLib.h>
 
-/**********************************************************************/
+///////////////////////////////
+/////////// INITS //////////////
+///////////////////////////////
+
 // interrupt0 pin for control pot
 int interruptButtonPin = 2;
 
@@ -58,15 +87,15 @@ int pressureLow = 80;
 int pressureHigh = 125;
 
 //time
-tmElements_t currentTm, tmLightStart, tmLightEnd;
-time_t currentT, tLightStart, tLightEnd;
+tmElements_t currentTm, todayTm, tmLightStart, tmLightEnd;
+time_t currentT, todayT, tLightStart, tLightEnd;
 
 //light
-byte startHour = 8;
-byte startMinute = 15;
-byte endHour = 14;
-byte endMinute = 20;
-boolean needsUpdate = 1;  // retrigger this on pot adjust of light times
+byte setLightStartHMS[3] = {00, 00, 10};
+byte setLightEndHMS[3] = {00, 00, 15};
+boolean lightState;
+//bool lightState[] = {false, false, false, false};
+//bool anyLit = false;
 
 int lightPin[4] = {26, 27, 28, 29}; //light out pins (digital out) [SET FOR MEGA]
 int lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
@@ -74,8 +103,6 @@ int lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR
 int lightIntensity = 90; //will receive value from pot adjust
 int lightIntensityLast;
 
-bool lightState[] = {false, false, false, false};
-bool anyLit = false;
 Chrono lightChrono;
 
 //debug
@@ -83,7 +110,10 @@ int debugReadPin[4] = {97, 96, 95, 94};
 int debugReading;
 
 
-/**********************************************************************/
+///////////////////////////////
+/////////// SETUP /////////////
+///////////////////////////////
+
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
@@ -112,63 +142,49 @@ void setup() {
 
   //lights
   for (int i; i < 4; i++) {
+    digitalWrite(lightPin[i], LOW);// check for proper write state if LOW is actually On/off
+  }
+  for (int i; i < 4; i++) {
     pinMode(lightPin[i], OUTPUT);
   }
   for (int i; i < 4; i++) {
     pinMode(lightPWMPin[i], OUTPUT);
   }
 
-  //debug READING
-  for (int i; i < 4; i++) {
-    pinMode(debugReadPin[i], INPUT);
-  }
-  //END debug
+  //  //debug READING
+  //  for (int i; i < 4; i++) {
+  //    pinMode(debugReadPin[i], INPUT);
+  //  }
+  //  //END debug
+
+  //needed for tm to work correctly
+  tmLightStart.Month = 1;
+  tmLightStart.Day = 1;
+  tmLightEnd.Month = 1;
+  tmLightEnd.Day = 1;
+
+  updateLightSchedule();
 }
 
 //adjustTime(43200);
 
+///////////////////////////////
+/////////// LOOP //////////////
+///////////////////////////////
 
-/**********************************************************************/
 void loop() {
   /*** Status/Readings ***/
   if (printChrono.hasPassed(1000)) {
-    //    time-
-
     Serial.println();
-    printMinLengthString("Date:");
-    printDate();
-
-    Serial.println();
-    printMinLengthString("Time:");
-    printTime();
-    //    Serial.println(now());
-
-    Serial.println();
-    printMinLengthString("Uptime:");
-    printUptime();
-    Serial.println();
-
-    printMinLengthString("Solenoid State:");
-    for (int i; i < 4; i++) {
-      //print solenoid state
-      Serial.print(solenoidState[i]);
-      Serial.print(" ");
-    }
-    Serial.println();
-
-    printMinLengthString("SolenoidOff elapsed:");
-    Serial.println(solenoidChronoOff.elapsed());
-    printChrono.restart();
-
-    printMinLengthString("PWM States:");
-    printLightPWM();
-    Serial.println();
+    displayTime();
+    displaySolenoid();
+    displayLight();
   }
 
   /*** WATERING CYCLE ***/
   //water loop 3.0
 
-  if (anyLit) {
+  if (lightState) {
     solenoidOnTimer = solenoidOn;
     solenoidOffTimer = solenoidOff;
   }
@@ -211,8 +227,9 @@ void loop() {
   */
   /*** TIME (integrated for Lighting) ***/
 
-  updateLightSchedule();
 
+  updateLightLoop();
+  setLight();
   /*** LIGHTING ***/
   //PWM
   // arduino 5+ --> resistor (1k-10k 4.7K optimal?)(or 1k-100k --> transistor -->dimming dim-
@@ -239,6 +256,10 @@ void loop() {
 
 
 }
+
+///////////////////////////////
+////////// FUNCTIONS //////////
+///////////////////////////////
 
 void printMinLengthString(char s[]) {
   char stretchedString[30];
@@ -317,32 +338,107 @@ void printLightPWM() {
   //  }
 }
 
-void updateLightSchedule() {
-  // time_t currentT = RTC.get();
-  breakTime(now(), currentTm);
-  if (needsUpdate) {
-    memcpy(&tmLightStart, &currentTm, sizeof(currentTm));
-    memcpy(&tmLightEnd, &currentTm, sizeof(currentTm));
-    // change auxiliary structures to meet your start and end schedule
-    tmLightStart.Hour = startHour;
-    tmLightStart.Minute = startMinute;
-    tmLightStart.Second = 0;
-    tmLightEnd.Hour = endHour;
-    tmLightEnd.Minute = endMinute;
-    tmLightEnd.Second = 0;
-    // reverse process to get timestamps
-    tLightStart = makeTime(tmLightStart);
-    tLightEnd = makeTime(tmLightEnd);
-
-    // check if end time is past midnight and correct if needed
-    if (startHour > endHour) //past midnight correction
-      tLightEnd = tLightEnd + SECS_PER_DAY;
-  }
-
+void updateLightSchedule() { // remember trigger on change via rotary encoder!
+  //sets time on/off
+  tmLightStart.Hour = setLightStartHMS[0];
+  tmLightStart.Minute = setLightStartHMS[1];
+  tmLightStart.Second = setLightStartHMS[2];
+  tmLightEnd.Hour = setLightEndHMS[0];
+  tmLightEnd.Minute = setLightEndHMS[1];
+  tmLightEnd.Second = setLightEndHMS[2];
 }
 
+void updateLightLoop() {
+  todayT = elapsedSecsToday(now());  //change to RTC.get() when RTC immplemented
+  breakTime(todayT, todayTm); //convert T to TM
 
+  tLightStart = elapsedSecsToday(makeTime(tmLightStart)); //elapsedSecsToday returns secs since midnight
+  tLightEnd = elapsedSecsToday(makeTime(tmLightEnd));
 
+  //midnight check
+  if (tLightStart > tLightEnd) {
+    tLightEnd = tLightEnd % SECS_PER_DAY + SECS_PER_DAY;
+  }
+}
+
+void setLight() {
+  if (
+    ((tLightStart <= todayT && tLightEnd >= todayT) // todayT (current time) is between lightstart and lightend
+     || (tLightEnd > SECS_PER_DAY && (tLightEnd - SECS_PER_DAY) >= todayT)) // or if lightend passes midnight and after todayT (current time)
+  ) { // on check: past time on, before time off
+    //tLightEnd = 32
+    if (lightState == 0) { // light isn't already on
+      lightState = 1;
+      //    digitalWrite(pin, LOW); //check for which state is required for relay ON, perhaps define it and use the var RELAY_ON instead
+      Serial.println("                                                  LIGHTS ON");
+    }
+  }
+  else {
+    if (lightState == 1) {
+      lightState = 0;
+      //    digitalWrite(pin, HIGH);
+      Serial.println("                                                  LIGHTS OUT");
+    }
+  }
+}
+//debugs/readouts
+void displayTime() {
+  printMinLengthString("Date:");
+  printDate();
+
+  Serial.println();
+  printMinLengthString("Time:");
+  printTime();
+  //    Serial.println(now());
+
+  Serial.println();
+  printMinLengthString("Uptime:");
+  printUptime();
+  Serial.println();
+}
+
+void displaySolenoid()    {
+  printMinLengthString("Solenoid State:");
+  for (int i; i < 4; i++) {
+    //print solenoid state
+    Serial.print(solenoidState[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  printMinLengthString("SolenoidOff elapsed:");
+  Serial.println(solenoidChronoOff.elapsed());
+  printChrono.restart();
+
+  printMinLengthString("PWM States:");
+  printLightPWM();
+  Serial.println();
+}
+
+void displayLight() {
+  /*Debug block*/
+  printMinLengthString("todayT:       ");
+  Serial.println(todayT);
+
+  printMinLengthString("tLightStart:  ");
+  Serial.print(hour(tLightStart));
+  Serial.print(":");
+  Serial.print(minute(tLightStart));
+  Serial.print(":");
+  Serial.print(second(tLightStart));
+  Serial.println();
+
+  printMinLengthString("tLightEnd:    ");
+  Serial.print(hour(tLightEnd));
+  Serial.print(":");
+  Serial.print(minute(tLightEnd));
+  Serial.print(":");
+  Serial.print(second(tLightEnd));
+  Serial.println();
+
+  printMinLengthString("lightState:   ");
+  Serial.println(lightState);
+}
 
 //interrupt functions
 void buttonISR() {
