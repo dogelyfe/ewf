@@ -210,6 +210,8 @@ void loop() {
   //some code to convert analog reading to psi, and averaging (last 10 measurements) for noise reduction
   //>>>>>needs calibration offsets
   pressurePsi = pressurePsi * 0.9 + map(pressureReading, 102, 922, 0, 200) * 0.1;
+  
+  //needs to account for hysteresis/signal noise?
   if (pressurePsi < pressureLow) {
     //pump on
     digitalWrite (pumpPin, LOW);
@@ -227,9 +229,9 @@ void loop() {
   */
   /*** TIME (integrated for Lighting) ***/
 
-
   updateLightLoop();
   setLight();
+  
   /*** LIGHTING ***/
   //PWM
   // arduino 5+ --> resistor (1k-10k 4.7K optimal?)(or 1k-100k --> transistor -->dimming dim-
@@ -325,7 +327,6 @@ void toggleSolenoidOff(int x) {
     }
   }
 }
-
 
 void printLightPWM() {
   //  char dateDisp[20];
