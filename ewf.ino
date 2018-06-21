@@ -1,6 +1,4 @@
-
-
-//SETUP
+//SETUP//
 /*
   Hardware
   1. solenoid relay pins
@@ -39,13 +37,16 @@
     AC
     Humidifier
 */
+#include <Arduino.h>
+#include <Wire.h>
+#include "Adafruit_SHT31.h" //humidity/temp module
+
 #include <ClickEncoder.h>
 
 #include <URTouchCD.h>
-#include <URTouch.h>
-
+#include <URTouch.h> //touchscreen
 #include <memorysaver.h>
-#include <UTFT.h>
+#include <UTFT.h> //lcd
 
 #include <Chrono.h>
 #include <LightChrono.h>
@@ -53,61 +54,63 @@
 #include <Time.h>
 #include <TimeLib.h>
 
-///////////////////////////////
+////////////////////////////////
 /////////// INITS //////////////
-///////////////////////////////
+////////////////////////////////
+
+///////// USER DEFINED /////////
+bool returnFarenheit = true; //sht31-d F or C
+//watering on for millisecs, make adjustable by 1/10ths of sec by pot
+unsigned long solenoidOn = 2000;
+unsigned long solenoidOff = 5000; //off
+unsigned long solenoidOnNight = 1000; //on for millisecs
+unsigned long solenoidOffNight = 10000; //off
+byte pressureLow = 80;
+byte pressureHigh = 125;
+byte setLightStartHMS[3] = {00, 00, 10}; // set time lights on HH,MM,SS
+byte setLightEndHMS[3] = {00, 00, 15}; // set time lights off HH,MM,SS
+byte lightPin[4] = {26, 27, 28, 29}; //light relay pins (digital out) [SET FOR MEGA]
+byte lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
+///// PINS /////
+byte solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
+byte pressurePin = 18;
+byte pumpPin = 8;
 
 // interrupt0 pin for control pot
 byte interruptButtonPin = 2;
+/////////////////////////////////
+/////////////////////////////////
 
 Chrono printChrono;
 Chrono secsChrono(Chrono::SECONDS);
 
-
+//environment
+Adafruit_SHT31 sht31 = Adafruit_SHT31();
 //water
-byte solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
 bool solenoidState[] = {false, false, false, false};
 bool anySolOn = false;
-
-unsigned long solenoidOn = 2000; //on for millisecs, make adjustable by 1/10ths of sec
-unsigned long solenoidOff = 5000; //off
-unsigned long solenoidOnNight = 1000; //on for millisecs
-unsigned long solenoidOffNight = 10000; //off
 Chrono solenoidChronoOff, solenoidChronoOn[4];
 unsigned long solenoidOnTimer, solenoidOffTimer;   //conditional holders for night/day value
-
 //pump
-byte pressurePin = 18;
-byte pumpPin = 8;
-
 float pressureReading;
 float pressurePsi = 90; //starts at 90 to avoid pump instant-on
-
-int pressureLow = 80;
-int pressureHigh = 125;
-
 //time
 tmElements_t currentTm, todayTm, tmLightStart, tmLightEnd;
 time_t currentT, todayT, tLightStart, tLightEnd;
 
 //light
-byte setLightStartHMS[3] = {00, 00, 10};
-byte setLightEndHMS[3] = {00, 00, 15};
 boolean lightState;
 //bool lightState[] = {false, false, false, false};
 //bool anyLit = false;
-
-byte lightPin[4] = {26, 27, 28, 29}; //light out pins (digital out) [SET FOR MEGA]
-byte lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
 
 byte lightIntensity = 90; //will receive value from pot adjust, should cap at 100
 byte lightIntensityLast;
 
 Chrono lightChrono;
 
-//debug
-byte debugReadPin[4] = {97, 96, 95, 94};
-byte debugReading;
+////debug
+//byte debugReadPin[4] = {97, 96, 95, 94};
+//byte debugReading;
 
 
 ///////////////////////////////
@@ -117,6 +120,8 @@ byte debugReading;
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
+  while (!Serial)
+    delay(10);
   //interrupts
   pinMode(interruptButtonPin, INPUT_PULLUP);
   // Attach an interrupt to ISR (a function defined after loop), HIGH determines interrupt on button press
@@ -129,7 +134,8 @@ void setup() {
   //analogPressurein = (A0)
 
   //watering
-  //solenoid relay triggers 22-25
+  setSolenoidTiming(); //initializes solenoid timing
+  //solenoid relay triggers
   for (int i; i < 4; i++) {
     pinMode(solenoidPin[i], OUTPUT);
   }
@@ -163,7 +169,12 @@ void setup() {
   tmLightEnd.Month = 1;
   tmLightEnd.Day = 1;
 
-  updateLightSchedule();
+  setLightSchedule();
+
+  if (! sht31.begin(0x44)) {   // Set to 0x45 for alternate i2c addr
+    Serial.println("Couldn't find SHT31");
+    //    while (1) delay(1);
+  }
 }
 
 //adjustTime(43200);
@@ -174,26 +185,16 @@ void setup() {
 
 void loop() {
   /*** Status/Readings ***/
-  if (printChrono.hasPassed(1000)) {
+  if (printChrono.hasPassed(3000)) {
     Serial.println();
-    displayTime();
+    printTimeReadout();
+    printTempHum();
     displaySolenoid();
     displayLight();
   }
 
   /*** WATERING CYCLE ***/
   //water loop 3.0
-
-  if (lightState) {
-    solenoidOnTimer = solenoidOn;
-    solenoidOffTimer = solenoidOff;
-  }
-  else {
-    solenoidOnTimer = solenoidOnNight;
-    solenoidOffTimer = solenoidOffNight;
-  }
-
-
   for (int i = 0; i < 4; i++) {
     toggleSolenoidOn(i);
   }
@@ -202,7 +203,6 @@ void loop() {
   }
   //    solenoidChronoOff.restart();
 
-
   /*** PUMP CONTROL ***/
   //on at 85 stop at 125?
 
@@ -210,7 +210,7 @@ void loop() {
   //some code to convert analog reading to psi, and averaging (last 10 measurements) for noise reduction
   //>>>>>needs calibration offsets
   pressurePsi = pressurePsi * 0.9 + map(pressureReading, 102, 922, 0, 200) * 0.1;
-  
+
   //needs to account for hysteresis/signal noise?
   if (pressurePsi < pressureLow) {
     //pump on
@@ -231,7 +231,7 @@ void loop() {
 
   updateLightLoop();
   setLight();
-  
+
   /*** LIGHTING ***/
   //PWM
   // arduino 5+ --> resistor (1k-10k 4.7K optimal?)(or 1k-100k --> transistor -->dimming dim-
@@ -292,6 +292,27 @@ void printUptime() {
   sprintf(upTimeDisp, "%02d:%02d:%02d:%02d", uptimeDay, uptimeHour, uptimeMin, uptimeSec);
   Serial.print(upTimeDisp);
 }
+void printTempHum() {
+  float t = sht31.readTemperature() * 1.8 + 32;
+  if (!returnFarenheit) {
+    t = sht31.readTemperature();
+  }
+  float h = sht31.readHumidity();
+  if (! isnan(t)) {  // check if 'is not a number'
+    printMinLengthString("Temperature:"); Serial.print(t); if (returnFarenheit) {
+      Serial.println(" F");
+    } else {
+      Serial.println(" C");
+    }
+  } else {
+    Serial.println("Failed to read temperature");
+  }
+  if (! isnan(h)) {  // check if 'is not a number'
+    printMinLengthString("Humidity:"); Serial.println(h);
+  } else {
+    Serial.println("Failed to read humidity");
+  }
+}
 
 
 void toggleSolenoidOn(int x) {
@@ -332,14 +353,23 @@ void printLightPWM() {
   //  char dateDisp[20];
   //  sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
   char pwmDisp[20];
-  sprintf(pwmDisp, "%-4d%-4d%-4d%-4d", analogRead(debugReadPin[0]), analogRead(debugReadPin[1]), analogRead(debugReadPin[2]), analogRead(debugReadPin[3]));
+  //  sprintf(pwmDisp, "%-4d%-4d%-4d%-4d", analogRead(debugReadPin[0]), analogRead(debugReadPin[1]), analogRead(debugReadPin[2]), analogRead(debugReadPin[3]));
   Serial.print(pwmDisp);
   //  for (int i = 0; i < 4; i++) {
   //    Serial.print(analogRead(lightPin[i]);
   //  }
 }
-
-void updateLightSchedule() { // remember trigger on change via rotary encoder!
+void setSolenoidTiming() { // remember trigger on change via rotary encoder!
+  if (lightState) {
+    solenoidOnTimer = solenoidOn;
+    solenoidOffTimer = solenoidOff;
+  }
+  else {
+    solenoidOnTimer = solenoidOnNight;
+    solenoidOffTimer = solenoidOffNight;
+  }
+}
+void setLightSchedule() { // remember trigger on change via rotary encoder!
   //sets time on/off
   tmLightStart.Hour = setLightStartHMS[0];
   tmLightStart.Minute = setLightStartHMS[1];
@@ -383,7 +413,7 @@ void setLight() {
   }
 }
 //debugs/readouts
-void displayTime() {
+void printTimeReadout() {
   printMinLengthString("Date:");
   printDate();
 
@@ -402,39 +432,25 @@ void displaySolenoid()    {
   printMinLengthString("Solenoid State:");
   for (int i; i < 4; i++) {
     //print solenoid state
-    Serial.print(solenoidState[i]);
-    Serial.print(" ");
+    Serial.print(solenoidState[i]); Serial.print(" ");
   }
   Serial.println();
 
-  printMinLengthString("SolenoidOff elapsed:");
-  Serial.println(solenoidChronoOff.elapsed());
+  printMinLengthString("SolenoidOff elapsed:"); Serial.println(solenoidChronoOff.elapsed());
   printChrono.restart();
 
-  printMinLengthString("PWM States:");
-  printLightPWM();
+  printMinLengthString("PWM States:"); printLightPWM();
   Serial.println();
 }
 
 void displayLight() {
   /*Debug block*/
-  printMinLengthString("todayT:       ");
-  Serial.println(todayT);
+  printMinLengthString("todayT:       "); Serial.println(todayT);
 
-  printMinLengthString("tLightStart:  ");
-  Serial.print(hour(tLightStart));
-  Serial.print(":");
-  Serial.print(minute(tLightStart));
-  Serial.print(":");
-  Serial.print(second(tLightStart));
+  printMinLengthString("tLightStart:  "); Serial.print(hour(tLightStart)); Serial.print(":"); Serial.print(minute(tLightStart)); Serial.print(":"); Serial.print(second(tLightStart));
   Serial.println();
 
-  printMinLengthString("tLightEnd:    ");
-  Serial.print(hour(tLightEnd));
-  Serial.print(":");
-  Serial.print(minute(tLightEnd));
-  Serial.print(":");
-  Serial.print(second(tLightEnd));
+  printMinLengthString("tLightEnd:    "); Serial.print(hour(tLightEnd)); Serial.print(":"); Serial.print(minute(tLightEnd)); Serial.print(":"); Serial.print(second(tLightEnd));
   Serial.println();
 
   printMinLengthString("lightState:   ");
@@ -452,8 +468,3 @@ void buttonISR() {
 void rotaryISR() {
 
 }
-
-
-
-
-
