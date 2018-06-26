@@ -41,6 +41,8 @@
 #include <Wire.h>
 #include "Adafruit_SHT31.h" //humidity/temp module
 
+#include <DS3231.h> // RTC
+
 #include <ClickEncoder.h>
 
 #include <URTouchCD.h>
@@ -81,6 +83,8 @@ byte interruptButtonPin = 2;
 /////////////////////////////////
 /////////////////////////////////
 
+DS3231  rtc(SDA, SCL);
+
 Chrono printChrono;
 Chrono secsChrono(Chrono::SECONDS);
 
@@ -97,6 +101,7 @@ float pressurePsi = 90; //starts at 90 to avoid pump instant-on
 //time
 tmElements_t currentTm, todayTm, tmLightStart, tmLightEnd;
 time_t currentT, todayT, tLightStart, tLightEnd;
+Time holderTime;
 
 //light
 boolean lightState;
@@ -120,8 +125,16 @@ Chrono lightChrono;
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
-  while (!Serial)
-    delay(10);
+  // while (!Serial) //intended to wait for serial initiate, but seems to pause entire process until serial monitor is up
+  //   delay(10);
+  rtc.begin();
+  //uncomment to set
+  // rtc.setDOW(TUESDAY);     // Set Day-of-Week to SUNDAY
+  // rtc.setTime(3, 44, 0);     // Set the time to 12:00:00 (24hr format)
+  // rtc.setDate(24, 6, 2018);   // day, month, year
+  holderTime = rtc.getTime();
+  setTime(holderTime.hour,holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); //(int hr,int min,int sec,int dy, int mnth, int yr)
+  currentT = now();
   //interrupts
   pinMode(interruptButtonPin, INPUT_PULLUP);
   // Attach an interrupt to ISR (a function defined after loop), HIGH determines interrupt on button press
@@ -294,12 +307,15 @@ void printUptime() {
 }
 void printTempHum() {
   float t = sht31.readTemperature() * 1.8 + 32;
+  float t2 = rtc.getTemp() * 1.8 + 32;
   if (!returnFarenheit) {
     t = sht31.readTemperature();
+    t2 = rtc.getTemp();
   }
   float h = sht31.readHumidity();
   if (! isnan(t)) {  // check if 'is not a number'
-    printMinLengthString("Temperature:"); Serial.print(t); if (returnFarenheit) {
+    printMinLengthString("Temperature:"); Serial.print(t); Serial.print(" "); Serial.print(t2); 
+  if (returnFarenheit) {
       Serial.println(" F");
     } else {
       Serial.println(" C");
@@ -308,7 +324,7 @@ void printTempHum() {
     Serial.println("Failed to read temperature");
   }
   if (! isnan(h)) {  // check if 'is not a number'
-    printMinLengthString("Humidity:"); Serial.println(h);
+    printMinLengthString("Humidity:"); Serial.print(h); Serial.println(" %");
   } else {
     Serial.println("Failed to read humidity");
   }
