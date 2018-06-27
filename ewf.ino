@@ -130,7 +130,7 @@ void setup() {
   rtc.begin();
   //uncomment to set
   // rtc.setDOW(TUESDAY);     // Set Day-of-Week to SUNDAY
-  // rtc.setTime(15, 50, 0);     // Set the time to 12:00:00 (24hr format)
+  // rtc.setTime(3, 44, 0);     // Set the time to 12:00:00 (24hr format)
   // rtc.setDate(24, 6, 2018);   // day, month, year
   holderTime = rtc.getTime();
   setTime(holderTime.hour,holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); //(int hr,int min,int sec,int dy, int mnth, int yr)
