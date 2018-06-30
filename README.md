@@ -2,7 +2,7 @@
 
 A greenhouse monitor and controller for the Arduino MEGA 2560.
 
-### Features
+## Features
 
 - real time clock
 - time based switching
@@ -15,6 +15,8 @@ A greenhouse monitor and controller for the Arduino MEGA 2560.
 
 ##### To Do
 
+- lcd
+- rotary encoder
 - battery management
 - data logging (RasPi implementation?)
 - modular sensor units?

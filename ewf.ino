@@ -71,18 +71,26 @@ byte pressureLow = 80;
 byte pressureHigh = 125;
 byte setLightStartHMS[3] = {00, 00, 10}; // set time lights on HH,MM,SS
 byte setLightEndHMS[3] = {00, 00, 15}; // set time lights off HH,MM,SS
+///// PINS /////
 byte lightPin[4] = {26, 27, 28, 29}; //light relay pins (digital out) [SET FOR MEGA]
 byte lightPWMPin[4] = {9, 10, 11, 12}; //light pwm out pins (analog out) [SET FOR MEGA]
-///// PINS /////
 byte solenoidPin[] = {22, 23, 24, 25}; // [SET FOR MEGA]
 byte pressurePin = 18;
 byte pumpPin = 8;
+// byte rotaryData, rotaryClock;
 
 // interrupt0 pin for control pot
 byte interruptButtonPin = 2;
 /////////////////////////////////
+//////// END USER DEFINED ///////
 /////////////////////////////////
 
+//screen init
+UTFT    myGLCD(CTE32_R2,38,39,40,41);
+URTouch  myTouch( 6, 5, 4, 3, 2);
+extern uint8_t SmallFont[];
+
+//RTC
 DS3231  rtc(SDA, SCL);
 
 Chrono printChrono;
@@ -91,7 +99,7 @@ Chrono secsChrono(Chrono::SECONDS);
 //environment
 Adafruit_SHT31 sht31 = Adafruit_SHT31();
 //water
-bool solenoidState[] = {false, false, false, false};
+bool solenoidState[4] = {0, 0, 0, 0};
 bool anySolOn = false;
 Chrono solenoidChronoOff, solenoidChronoOn[4];
 unsigned long solenoidOnTimer, solenoidOffTimer;   //conditional holders for night/day value
@@ -114,7 +122,7 @@ byte lightIntensityLast;
 Chrono lightChrono;
 
 ////debug
-//byte debugReadPin[4] = {97, 96, 95, 94};
+byte debugReadPin[4] = {97, 96, 95, 94};
 //byte debugReading;
 
 
@@ -133,7 +141,8 @@ void setup() {
   // rtc.setTime(15, 50, 0);     // Set the time to 12:00:00 (24hr format)
   // rtc.setDate(24, 6, 2018);   // day, month, year
   holderTime = rtc.getTime();
-  setTime(holderTime.hour,holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); //(int hr,int min,int sec,int dy, int mnth, int yr)
+  //(int hr,int min,int sec,int dy, int mnth, int yr)
+  setTime(holderTime.hour, holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); 
   currentT = now();
   //interrupts
   pinMode(interruptButtonPin, INPUT_PULLUP);
@@ -200,10 +209,7 @@ void loop() {
   /*** Status/Readings ***/
   if (printChrono.hasPassed(3000)) {
     Serial.println();
-    printTimeReadout();
-    printTempHum();
-    displaySolenoid();
-    displayLight();
+    printLoop();
   }
 
   /*** WATERING CYCLE ***/
@@ -257,7 +263,7 @@ void loop() {
   //  analogWrite(lightPWMPin[i],
   if (lightIntensity != lightIntensityLast) {
     for (int i = 0; i < 4; i++) {
-      analogWrite(lightPin[i], map(lightIntensity, 0, 100, 0, 255));
+      analogWrite(lightPWMPin[i], map(lightIntensity, 0, 100, 0, 255));
       lightIntensityLast = lightIntensity;
     }
   }
@@ -276,27 +282,78 @@ void loop() {
 ////////// FUNCTIONS //////////
 ///////////////////////////////
 
+void printLoop() {
+  printMinLengthString("Date:");
+  printDate();
+
+  Serial.println();
+  printMinLengthString("Time:");
+  printTime();
+  Serial.println();
+
+  printMinLengthString("Uptime:");
+  printUptime();
+  Serial.println();
+
+  printMinLengthString("Temperature:");
+  printTemp();
+  Serial.println();
+
+  printMinLengthString("Humidity:");
+  printHumidity();
+  Serial.println();
+
+  printMinLengthString("Solenoid State:");
+  printSolState();
+  Serial.println();
+
+  printMinLengthString("SolenoidOff elapsed:"); Serial.println(solenoidChronoOff.elapsed());
+  printChrono.restart();
+
+  printMinLengthString("PWM States:"); printLightPWM();
+  Serial.println();
+
+  printMinLengthString("Seconds since midnight: "); Serial.println(todayT);
+
+  printMinLengthString("Lights On: "); 
+  printLightsOn();
+  Serial.println();
+
+  printMinLengthString("Lights Off: "); 
+  printLightsOff();
+  Serial.println();
+
+  printMinLengthString("lightState:   ");
+  Serial.println(lightState);
+}
+
 void printMinLengthString(char s[]) {
   char stretchedString[30];
   sprintf(stretchedString, "%-25s", s);
   Serial.print(stretchedString);
 }
 
-void printDate() {
+String printDate() {
   char dateDisp[20];
   sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
   Serial.print(dateDisp);
+  return dateDisp;
 }
 
-void printTime() {
-  char timeDisp[20];
-  String amPm[] = {" AM", " PM"};
+String printTime() {
+  char timeDisp[20], amPm[4]; 
+  if(isPM()){
+    strcpy(amPm, " PM");
+  } else {
+    strcpy(amPm, " AM");
+  }
   sprintf(timeDisp, "%02d:%02d:%02d", hourFormat12(), minute(), second());
+  strcat(timeDisp, amPm);
   Serial.print(timeDisp);
-  Serial.print(amPm[isPM()]);
+  return timeDisp;
 }
 
-void printUptime() {
+String printUptime() {
   char upTimeDisp[20];
   int uptimeSec = secsChrono.elapsed() % 60;
   int uptimeMin = (secsChrono.elapsed() / 60) % 60;
@@ -304,32 +361,64 @@ void printUptime() {
   int uptimeDay = (secsChrono.elapsed() / 60 / 60 / 24) % 24;
   sprintf(upTimeDisp, "%02d:%02d:%02d:%02d", uptimeDay, uptimeHour, uptimeMin, uptimeSec);
   Serial.print(upTimeDisp);
+  return upTimeDisp;
 }
-void printTempHum() {
+
+String printTemp() {
   float t = sht31.readTemperature() * 1.8 + 32;
   float t2 = rtc.getTemp() * 1.8 + 32;
+  String tempDisp;
+  char FC[4];
   if (!returnFarenheit) {
     t = sht31.readTemperature();
     t2 = rtc.getTemp();
   }
-  float h = sht31.readHumidity();
   if (! isnan(t)) {  // check if 'is not a number'
-    printMinLengthString("Temperature:"); Serial.print(t); Serial.print(" "); Serial.print(t2); 
-  if (returnFarenheit) {
-      Serial.println(" F");
-    } else {
-      Serial.println(" C");
-    }
+    // Serial.print(t); Serial.print(" "); Serial.print(t2); 
+    if (returnFarenheit) {
+      strcpy(FC, "F");
+      } else {
+      strcpy(FC, "C");
+      }
+      // dtostrf(t, -6, 2, tOut); dtostrf(t2, -6, 2, t2Out);
+      //printf(tempDisp, "%6.2f %s %s", t, t2Out, FC); //dont use s for FC
+      tempDisp.concat(t); tempDisp.concat(" "); tempDisp.concat(FC); tempDisp.concat(", ");
+      tempDisp.concat(t2); tempDisp.concat(" "); tempDisp.concat(FC);
+      Serial.print(tempDisp);
+      return tempDisp;
   } else {
     Serial.println("Failed to read temperature");
-  }
-  if (! isnan(h)) {  // check if 'is not a number'
-    printMinLengthString("Humidity:"); Serial.print(h); Serial.println(" %");
-  } else {
-    Serial.println("Failed to read humidity");
+    return "Failed to read temperature";
   }
 }
-
+String printHumidity() {
+  float h = sht31.readHumidity();
+  String humDisp;
+  if (! isnan(h)) {  // check if 'is not a number'
+    //dtostrf(h, 6, 2, hOut);
+    // strcpy(hOut, "%");
+    // printf(humDisp, "%-6s %-2s", h, hOut);
+    humDisp.concat(h); humDisp.concat(" %");
+    Serial.print(humDisp);
+    return humDisp;
+  } else {
+    Serial.println("Failed to read humidity");
+    return "Failed to read humidity";
+  }
+}
+String printSolState(){
+  String solDisp;
+  for (int i; i < 4; i++) {
+    //print solenoid state
+    if (solenoidState[i]){
+      solDisp.concat("on  ");
+    } else {
+      solDisp.concat("off ");
+    }
+  }
+  Serial.print(solDisp);
+  return solDisp;
+}
 
 void toggleSolenoidOn(int x) {
   int minZero = max(x - 1, 0); //ensures >=0 array pointer
@@ -365,16 +454,52 @@ void toggleSolenoidOff(int x) {
   }
 }
 
-void printLightPWM() {
+String printLightPWM() {
   //  char dateDisp[20];
   //  sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
-  char pwmDisp[20];
-  //  sprintf(pwmDisp, "%-4d%-4d%-4d%-4d", analogRead(debugReadPin[0]), analogRead(debugReadPin[1]), analogRead(debugReadPin[2]), analogRead(debugReadPin[3]));
-  Serial.print(pwmDisp);
+  String pwmDisp;
+  char buffer[5];
+  //  sprintf(pwmDisp, "%-4d%-4d%-4d%-4d", analogRead(debugReadPin[0]), 
+  // analogRead(debugReadPin[1]), analogRead(debugReadPin[2]), analogRead(debugReadPin[3]));
+  //  Serial.print(pwmDisp);
   //  for (int i = 0; i < 4; i++) {
   //    Serial.print(analogRead(lightPin[i]);
   //  }
+  for (int i; i < 4; i++){
+    sprintf(buffer, "%-4d", analogRead(debugReadPin[i]));
+    pwmDisp.concat(buffer);
+  }
+  Serial.print(pwmDisp);
+  return pwmDisp;
 }
+
+String printLightsOn(){
+  String lightsOnDisp;
+  lightsOnDisp.concat(hour(tLightStart)); lightsOnDisp.concat(":"); 
+  lightsOnDisp.concat(minute(tLightStart)); lightsOnDisp.concat(":"); 
+  lightsOnDisp.concat(second(tLightStart));
+  if (isAM(tLightStart)){
+    lightsOnDisp.concat(" AM");
+  } else {
+    lightsOnDisp.concat(" PM");
+  }
+  Serial.print(lightsOnDisp);
+  return lightsOnDisp;
+}
+String printLightsOff(){
+  String lightsOffDisp;
+  lightsOffDisp.concat(hour(tLightEnd)); lightsOffDisp.concat(":"); 
+  lightsOffDisp.concat(minute(tLightEnd)); lightsOffDisp.concat(":"); 
+  lightsOffDisp.concat(second(tLightEnd));
+  if (isAM(tLightEnd)){
+    lightsOffDisp.concat(" AM");
+  } else {
+    lightsOffDisp.concat(" PM");
+  }
+  Serial.print(lightsOffDisp);
+  return lightsOffDisp;
+}
+
 void setSolenoidTiming() { // remember trigger on change via rotary encoder!
   if (lightState) {
     solenoidOnTimer = solenoidOn;
@@ -411,7 +536,7 @@ void updateLightLoop() {
 void setLight() {
   if (
     ((tLightStart <= todayT && tLightEnd >= todayT) // todayT (current time) is between lightstart and lightend
-     || (tLightEnd > SECS_PER_DAY && (tLightEnd - SECS_PER_DAY) >= todayT)) // or if lightend passes midnight and after todayT (current time)
+     || (tLightEnd > SECS_PER_DAY && (tLightEnd - SECS_PER_DAY) >= todayT)) // or lightend passes midnight and after todayT (current time)
   ) { // on check: past time on, before time off
     //tLightEnd = 32
     if (lightState == 0) { // light isn't already on
@@ -428,50 +553,7 @@ void setLight() {
     }
   }
 }
-//debugs/readouts
-void printTimeReadout() {
-  printMinLengthString("Date:");
-  printDate();
 
-  Serial.println();
-  printMinLengthString("Time:");
-  printTime();
-  //    Serial.println(now());
-
-  Serial.println();
-  printMinLengthString("Uptime:");
-  printUptime();
-  Serial.println();
-}
-
-void displaySolenoid()    {
-  printMinLengthString("Solenoid State:");
-  for (int i; i < 4; i++) {
-    //print solenoid state
-    Serial.print(solenoidState[i]); Serial.print(" ");
-  }
-  Serial.println();
-
-  printMinLengthString("SolenoidOff elapsed:"); Serial.println(solenoidChronoOff.elapsed());
-  printChrono.restart();
-
-  printMinLengthString("PWM States:"); printLightPWM();
-  Serial.println();
-}
-
-void displayLight() {
-  /*Debug block*/
-  printMinLengthString("todayT:       "); Serial.println(todayT);
-
-  printMinLengthString("tLightStart:  "); Serial.print(hour(tLightStart)); Serial.print(":"); Serial.print(minute(tLightStart)); Serial.print(":"); Serial.print(second(tLightStart));
-  Serial.println();
-
-  printMinLengthString("tLightEnd:    "); Serial.print(hour(tLightEnd)); Serial.print(":"); Serial.print(minute(tLightEnd)); Serial.print(":"); Serial.print(second(tLightEnd));
-  Serial.println();
-
-  printMinLengthString("lightState:   ");
-  Serial.println(lightState);
-}
 
 //interrupt functions
 void buttonISR() {
