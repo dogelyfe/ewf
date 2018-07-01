@@ -89,6 +89,7 @@ byte interruptButtonPin = 2;
 UTFT    myGLCD(CTE32_R2,38,39,40,41);
 URTouch  myTouch( 6, 5, 4, 3, 2);
 extern uint8_t SmallFont[];
+int LCDpaddingX = 5, LCDpaddingY = 2;
 
 //RTC
 DS3231  rtc(SDA, SCL);
@@ -133,14 +134,24 @@ byte debugReadPin[4] = {97, 96, 95, 94};
 void setup() {
   // initialize serial communication at 9600 bits per second:
   Serial.begin(9600);
-  // while (!Serial) //intended to wait for serial initiate, but seems to pause entire process until serial monitor is up
-  //   delay(10);
+
+  //LCD init
+  myGLCD.InitLCD();
+  myGLCD.clrScr();
+
+  myTouch.InitTouch();
+  myTouch.setPrecision(PREC_MEDIUM);
+
+  myGLCD.setFont(SmallFont);
+  myGLCD.setBackColor(VGA_BLACK);
+
   rtc.begin();
   //uncomment to set
   // rtc.setDOW(TUESDAY);     // Set Day-of-Week to SUNDAY
   // rtc.setTime(15, 50, 0);     // Set the time to 12:00:00 (24hr format)
   // rtc.setDate(24, 6, 2018);   // day, month, year
   holderTime = rtc.getTime();
+
   //(int hr,int min,int sec,int dy, int mnth, int yr)
   setTime(holderTime.hour, holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); 
   currentT = now();
@@ -283,61 +294,118 @@ void loop() {
 ///////////////////////////////
 
 void printLoop() {
-  printMinLengthString("Date:");
-  printDate();
+  Serial.print(printMinLengthString("Date:"));
+  Serial.print(printDate());
 
   Serial.println();
-  printMinLengthString("Time:");
-  printTime();
+  Serial.print(printMinLengthString("Time:"));
+  Serial.print(printTime());
   Serial.println();
 
-  printMinLengthString("Uptime:");
-  printUptime();
+  Serial.print(printMinLengthString("Uptime:"));
+  Serial.print(printUptime());
   Serial.println();
 
-  printMinLengthString("Temperature:");
-  printTemp();
+  Serial.print(printMinLengthString("Temp:"));
+  Serial.print(printTemp());
   Serial.println();
 
-  printMinLengthString("Humidity:");
-  printHumidity();
+  Serial.print(printMinLengthString("Humidity:"));
+  Serial.print(printHumidity());
   Serial.println();
 
-  printMinLengthString("Solenoid State:");
-  printSolState();
+  Serial.print(printMinLengthString("Sol States:"));
+  Serial.print(printSolState());
   Serial.println();
 
-  printMinLengthString("SolenoidOff elapsed:"); Serial.println(solenoidChronoOff.elapsed());
+  Serial.print(printMinLengthString("Sol Off (s):"));
+  Serial.println(printSolOff());
+
+  Serial.print(printMinLengthString("PWM States:")); 
+  Serial.print(printLightPWM());
+  Serial.println();
+
+  Serial.print(printMinLengthString("Today (s):"));
+  Serial.println(printTodayT());
+
+  Serial.print(printMinLengthString("Lights On: ")); 
+  Serial.print(printLightsOn());
+  Serial.println();
+
+  Serial.print(printMinLengthString("Lights Off: ")); 
+  Serial.print(printLightsOff());
+  Serial.println();
+
+  Serial.print(printMinLengthString("lightState: "));
+  Serial.println(printLightState());
+
+  printLCDMenu(); //LCD MENU
+
   printChrono.restart();
-
-  printMinLengthString("PWM States:"); printLightPWM();
-  Serial.println();
-
-  printMinLengthString("Seconds since midnight: "); Serial.println(todayT);
-
-  printMinLengthString("Lights On: "); 
-  printLightsOn();
-  Serial.println();
-
-  printMinLengthString("Lights Off: "); 
-  printLightsOff();
-  Serial.println();
-
-  printMinLengthString("lightState:   ");
-  Serial.println(lightState);
 }
 
-void printMinLengthString(char s[]) {
+void printLCDMenu(){
+  char LCDbuffer[50], LCDbuffer1[50];
+
+  struct menuItem {
+    String label;
+    String (*printFn)();
+
+    bool boolParam;
+    int intParam;
+    double doubleParam;
+
+    bool hovered;
+    bool selected;
+
+  } menuArray[16]; //declares menuItem object
+//leave [0] null?
+  menuArray[0].label = printDate();
+  menuArray[0].printFn = printTime;
+  menuArray[1].label = "Uptime:";
+  menuArray[1].printFn = printUptime;
+  menuArray[2].label = "Temp:";
+  menuArray[2].printFn = printTemp;
+  menuArray[3].label = "Humidity:";
+  menuArray[3].printFn = printHumidity;
+  menuArray[4].label = "Sol States:";
+  menuArray[4].printFn = printSolState;
+  menuArray[5].label = "Sol Off (s):";
+  menuArray[5].printFn = printSolOff;
+  menuArray[6].label = "PWM States:";
+  menuArray[6].printFn = printLightPWM;
+  menuArray[7].label = "Today (s):";
+  menuArray[7].printFn = printTodayT;
+  menuArray[8].label = "Lights On:";
+  menuArray[8].printFn = printLightsOn;
+  menuArray[9].label = "Lights Off:";
+  menuArray[9].printFn = printLightsOff;
+  menuArray[10].label = "Light State:";
+  menuArray[10].printFn = printLightState;
+
+  for (int i=0; i <= 10; i++){ //set loop limit to items+1
+  //printlcd
+  printMinLengthString(menuArray[i].label).toCharArray(LCDbuffer,50);
+  menuArray[i].printFn().toCharArray(LCDbuffer1,50);
+  sprintf(LCDbuffer, "%s%s", LCDbuffer, LCDbuffer1);
+  myGLCD.print(LCDbuffer, LCDpaddingX, (LCDpaddingY + i * 14));
+  }
+}
+
+String printMinLengthString(String s) {
   char stretchedString[30];
-  sprintf(stretchedString, "%-25s", s);
-  Serial.print(stretchedString);
+  s.toCharArray(stretchedString,30);
+  sprintf(stretchedString, "%-13s", stretchedString);
+  // Serial.print(stretchedString);
+  return stretchedString;
 }
 
 String printDate() {
   char dateDisp[20];
   sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
-  Serial.print(dateDisp);
-  return dateDisp;
+  // Serial.print(dateDisp);
+  String dateDispS = dateDisp;
+  return dateDispS;
 }
 
 String printTime() {
@@ -349,7 +417,7 @@ String printTime() {
   }
   sprintf(timeDisp, "%02d:%02d:%02d", hourFormat12(), minute(), second());
   strcat(timeDisp, amPm);
-  Serial.print(timeDisp);
+  // Serial.print(timeDisp);
   return timeDisp;
 }
 
@@ -360,7 +428,7 @@ String printUptime() {
   int uptimeHour = (secsChrono.elapsed() / 60 / 60) % 60;
   int uptimeDay = (secsChrono.elapsed() / 60 / 60 / 24) % 24;
   sprintf(upTimeDisp, "%02d:%02d:%02d:%02d", uptimeDay, uptimeHour, uptimeMin, uptimeSec);
-  Serial.print(upTimeDisp);
+  // Serial.print(upTimeDisp);
   return upTimeDisp;
 }
 
@@ -384,10 +452,10 @@ String printTemp() {
       //printf(tempDisp, "%6.2f %s %s", t, t2Out, FC); //dont use s for FC
       tempDisp.concat(t); tempDisp.concat(" "); tempDisp.concat(FC); tempDisp.concat(", ");
       tempDisp.concat(t2); tempDisp.concat(" "); tempDisp.concat(FC);
-      Serial.print(tempDisp);
+      // Serial.print(tempDisp);
       return tempDisp;
   } else {
-    Serial.println("Failed to read temperature");
+    // Serial.println("Failed to read temperature");
     return "Failed to read temperature";
   }
 }
@@ -399,10 +467,10 @@ String printHumidity() {
     // strcpy(hOut, "%");
     // printf(humDisp, "%-6s %-2s", h, hOut);
     humDisp.concat(h); humDisp.concat(" %");
-    Serial.print(humDisp);
+    // Serial.print(humDisp);
     return humDisp;
   } else {
-    Serial.println("Failed to read humidity");
+    // Serial.println("Failed to read humidity");
     return "Failed to read humidity";
   }
 }
@@ -416,8 +484,27 @@ String printSolState(){
       solDisp.concat("off ");
     }
   }
-  Serial.print(solDisp);
+  // Serial.print(solDisp);
   return solDisp;
+}
+String printSolOff(){
+  char buffer[10];
+  ltoa(solenoidChronoOff.elapsed()/1000, buffer, 10);
+  // solenoidChronoOff.elapsed().toCharArray(buffer, 10);
+  return buffer;
+}
+String printTodayT(){
+  char buffer[10];
+  ltoa(todayT, buffer, 10);
+  // solenoidChronoOff.elapsed().toCharArray(buffer, 10);
+  return buffer; 
+}
+String printLightState(){
+  if (lightState){
+    return "on";
+  } else {
+    return "off";
+  }
 }
 
 void toggleSolenoidOn(int x) {
@@ -469,7 +556,7 @@ String printLightPWM() {
     sprintf(buffer, "%-4d", analogRead(debugReadPin[i]));
     pwmDisp.concat(buffer);
   }
-  Serial.print(pwmDisp);
+  // Serial.print(pwmDisp);
   return pwmDisp;
 }
 
@@ -483,7 +570,7 @@ String printLightsOn(){
   } else {
     lightsOnDisp.concat(" PM");
   }
-  Serial.print(lightsOnDisp);
+  // Serial.print(lightsOnDisp);
   return lightsOnDisp;
 }
 String printLightsOff(){
@@ -496,7 +583,7 @@ String printLightsOff(){
   } else {
     lightsOffDisp.concat(" PM");
   }
-  Serial.print(lightsOffDisp);
+  // Serial.print(lightsOffDisp);
   return lightsOffDisp;
 }
 

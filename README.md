@@ -12,10 +12,12 @@ A greenhouse monitor and controller for the Arduino MEGA 2560.
 - humidity monitoring
 
 ***
+##### In Progress
+
+- lcd menu, touch interface
 
 ##### To Do
 
-- lcd
 - rotary encoder
 - battery management
 - data logging (RasPi implementation?)
