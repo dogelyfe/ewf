@@ -89,7 +89,46 @@ byte interruptButtonPin = 2;
 UTFT    myGLCD(CTE32_R2,38,39,40,41);
 URTouch  myTouch( 6, 5, 4, 3, 2);
 extern uint8_t SmallFont[];
+// extern uint8_t arial_normal[];
 int LCDpaddingX = 5, LCDpaddingY = 2;
+
+//menu
+  struct menuItem {
+    String label;
+    String (*printFn)();
+    bool settable;
+    bool hovered;
+    bool selected;
+
+    bool boolParam;
+    int intParam;
+    double doubleParam;
+    
+    // menuItem()
+    //   //initialize list
+    //   : settable(false), hovered(false), selected(false)
+    //   {}
+  };
+  // menuArray[16]; 
+  // String xyz;
+  String (*ptrPrint)() = &printDate; //not sure why this is req-- throws multiple "func not declared in this scope" compile errors without
+   // = printDate();
+  menuItem menuArray[16] = {
+    {"<DatePlaceholder>", printTime},
+    {"Up   ", printUptime},
+    {"Temp ", printTemp},
+    {"Humi ", printHumidity},
+    {"SolS ", printSolState},
+    {"SOff ", printSolOff},
+    {"PWMs ", printLightPWM},
+    {"LStt ", printLightState},
+    // {"Tody ", printTodayT},
+    // {"", returnNull},
+    {"", returnNull},
+    {"LOn  ", printLightsOn},
+    {"LOff ", printLightsOff},
+    {"LStt ", printLightState}
+  };
 
 //RTC
 DS3231  rtc(SDA, SCL);
@@ -110,7 +149,6 @@ float pressurePsi = 90; //starts at 90 to avoid pump instant-on
 //time
 tmElements_t currentTm, todayTm, tmLightStart, tmLightEnd;
 time_t currentT, todayT, tLightStart, tLightEnd;
-Time holderTime;
 
 //light
 boolean lightState;
@@ -143,18 +181,21 @@ void setup() {
   myTouch.setPrecision(PREC_MEDIUM);
 
   myGLCD.setFont(SmallFont);
+  // myGLCD.setFont(arial_normal);
   myGLCD.setBackColor(VGA_BLACK);
+  
+  //init menu w blue
+  printLCDBG();
+
 
   rtc.begin();
   //uncomment to set
   // rtc.setDOW(TUESDAY);     // Set Day-of-Week to SUNDAY
   // rtc.setTime(15, 50, 0);     // Set the time to 12:00:00 (24hr format)
-  // rtc.setDate(24, 6, 2018);   // day, month, year
-  holderTime = rtc.getTime();
+  // rtc.setDate(2, 7, 2018);   // day, month, year
 
-  //(int hr,int min,int sec,int dy, int mnth, int yr)
-  setTime(holderTime.hour, holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); 
-  currentT = now();
+  syncArdTime(); // copies rtc to ard now()
+
   //interrupts
   pinMode(interruptButtonPin, INPUT_PULLUP);
   // Attach an interrupt to ISR (a function defined after loop), HIGH determines interrupt on button press
@@ -218,9 +259,14 @@ void setup() {
 
 void loop() {
   /*** Status/Readings ***/
-  if (printChrono.hasPassed(3000)) {
+  if (printChrono.hasPassed(190)) {
     Serial.println();
     printLoop();
+    // Serial.println(year());
+
+    // if(menuArray[8].label == NULL){
+    //     Serial.println("menuArray[8].label == NULL");
+    //   }
   }
 
   /*** WATERING CYCLE ***/
@@ -294,50 +340,51 @@ void loop() {
 ///////////////////////////////
 
 void printLoop() {
-  Serial.print(printMinLengthString("Date:"));
-  Serial.print(printDate());
+  // SERIAL BLOCK
+  // Serial.print(printMinLengthString("Date:"));
+  // Serial.print(printDate());
 
-  Serial.println();
-  Serial.print(printMinLengthString("Time:"));
-  Serial.print(printTime());
-  Serial.println();
+  // Serial.println();
+  // Serial.print(printMinLengthString("Time:"));
+  // Serial.print(printTime());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Uptime:"));
-  Serial.print(printUptime());
-  Serial.println();
+  // Serial.print(printMinLengthString("Uptime:"));
+  // Serial.print(printUptime());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Temp:"));
-  Serial.print(printTemp());
-  Serial.println();
+  // Serial.print(printMinLengthString("Temp:"));
+  // Serial.print(printTemp());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Humidity:"));
-  Serial.print(printHumidity());
-  Serial.println();
+  // Serial.print(printMinLengthString("Humidity:"));
+  // Serial.print(printHumidity());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Sol States:"));
-  Serial.print(printSolState());
-  Serial.println();
+  // Serial.print(printMinLengthString("Sol States:"));
+  // Serial.print(printSolState());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Sol Off (s):"));
-  Serial.println(printSolOff());
+  // Serial.print(printMinLengthString("Sol Off (s):"));
+  // Serial.println(printSolOff());
 
-  Serial.print(printMinLengthString("PWM States:")); 
-  Serial.print(printLightPWM());
-  Serial.println();
+  // Serial.print(printMinLengthString("PWM States:")); 
+  // Serial.print(printLightPWM());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Today (s):"));
-  Serial.println(printTodayT());
+  // Serial.print(printMinLengthString("Today (s):"));
+  // Serial.println(printTodayT());
 
-  Serial.print(printMinLengthString("Lights On: ")); 
-  Serial.print(printLightsOn());
-  Serial.println();
+  // Serial.print(printMinLengthString("Lights On: ")); 
+  // Serial.print(printLightsOn());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("Lights Off: ")); 
-  Serial.print(printLightsOff());
-  Serial.println();
+  // Serial.print(printMinLengthString("Lights Off: ")); 
+  // Serial.print(printLightsOff());
+  // Serial.println();
 
-  Serial.print(printMinLengthString("lightState: "));
-  Serial.println(printLightState());
+  // Serial.print(printMinLengthString("lightState: "));
+  // Serial.println(printLightState());
 
   printLCDMenu(); //LCD MENU
 
@@ -347,48 +394,46 @@ void printLoop() {
 void printLCDMenu(){
   char LCDbuffer[50], LCDbuffer1[50];
 
-  struct menuItem {
-    String label;
-    String (*printFn)();
+  // menuArray[0].label = printDate();
+  // menuArray[0].printFn = printTime;
+  // menuArray[1].label = "Up   ";
+  // menuArray[1].printFn = printUptime;
+  // menuArray[2].label = "Temp ";
+  // menuArray[2].printFn = printTemp;
+  // menuArray[3].label = "Humi ";
+  // menuArray[3].printFn = printHumidity;
+  // menuArray[4].label = "SolS ";
+  // menuArray[4].printFn = printSolState;
+  // menuArray[5].label = "SOff ";
+  // menuArray[5].printFn = printSolOff;
+  // menuArray[6].label = "PWMs ";
+  // menuArray[6].printFn = printLightPWM;
+  // menuArray[7].label = "Tody ";
+  // menuArray[7].printFn = printTodayT;
+  // menuArray[8].label = "LOn  ";
+  // menuArray[8].printFn = printLightsOn;
+  // menuArray[9].label = "LOff ";
+  // menuArray[9].printFn = printLightsOff;
+  // menuArray[10].label = "LStt ";
+  // menuArray[10].printFn = printLightState
 
-    bool boolParam;
-    int intParam;
-    double doubleParam;
-
-    bool hovered;
-    bool selected;
-
-  } menuArray[16]; //declares menuItem object
-//leave [0] null?
-  menuArray[0].label = printDate();
-  menuArray[0].printFn = printTime;
-  menuArray[1].label = "Uptime:";
-  menuArray[1].printFn = printUptime;
-  menuArray[2].label = "Temp:";
-  menuArray[2].printFn = printTemp;
-  menuArray[3].label = "Humidity:";
-  menuArray[3].printFn = printHumidity;
-  menuArray[4].label = "Sol States:";
-  menuArray[4].printFn = printSolState;
-  menuArray[5].label = "Sol Off (s):";
-  menuArray[5].printFn = printSolOff;
-  menuArray[6].label = "PWM States:";
-  menuArray[6].printFn = printLightPWM;
-  menuArray[7].label = "Today (s):";
-  menuArray[7].printFn = printTodayT;
-  menuArray[8].label = "Lights On:";
-  menuArray[8].printFn = printLightsOn;
-  menuArray[9].label = "Lights Off:";
-  menuArray[9].printFn = printLightsOff;
-  menuArray[10].label = "Light State:";
-  menuArray[10].printFn = printLightState;
-
-  for (int i=0; i <= 10; i++){ //set loop limit to items+1
+  for (int i = 0; i <= 11; i++){ //set loop limit to highest array pointer
   //printlcd
-  printMinLengthString(menuArray[i].label).toCharArray(LCDbuffer,50);
+    if (i == 0) {
+      menuArray[0].label = printDate();
+      myGLCD.setBackColor(VGA_BLUE);
+    } else if(menuArray[i].label == NULL){
+      myGLCD.setBackColor(VGA_BLUE);
+    } else {
+      myGLCD.setBackColor(VGA_BLACK);
+    }
+  // printMinLengthString(menuArray[i].label).toCharArray(LCDbuffer,50);
+  (menuArray[i].label).toCharArray(LCDbuffer,50);
   menuArray[i].printFn().toCharArray(LCDbuffer1,50);
-  sprintf(LCDbuffer, "%s%s", LCDbuffer, LCDbuffer1);
-  myGLCD.print(LCDbuffer, LCDpaddingX, (LCDpaddingY + i * 14));
+  strcat(LCDbuffer, LCDbuffer1);
+  // sprintf(LCDbuffer, "%s%s", LCDbuffer, LCDbuffer1);
+  myGLCD.print(LCDbuffer, LCDpaddingX, (LCDpaddingY + i * 13));
+  // myGLCD.setBackColor(VGA_BLACK);
   }
 }
 
@@ -402,7 +447,7 @@ String printMinLengthString(String s) {
 
 String printDate() {
   char dateDisp[20];
-  sprintf(dateDisp, "%02d/%02d/%04d", month(), day(), year());
+  sprintf(dateDisp, "%02d/%02d/%04d  ", month(), day(), year());
   // Serial.print(dateDisp);
   String dateDispS = dateDisp;
   return dateDispS;
@@ -450,7 +495,7 @@ String printTemp() {
       }
       // dtostrf(t, -6, 2, tOut); dtostrf(t2, -6, 2, t2Out);
       //printf(tempDisp, "%6.2f %s %s", t, t2Out, FC); //dont use s for FC
-      tempDisp.concat(t); tempDisp.concat(" "); tempDisp.concat(FC); tempDisp.concat(", ");
+      tempDisp.concat(t); tempDisp.concat(", ");
       tempDisp.concat(t2); tempDisp.concat(" "); tempDisp.concat(FC);
       // Serial.print(tempDisp);
       return tempDisp;
@@ -489,7 +534,7 @@ String printSolState(){
 }
 String printSolOff(){
   char buffer[10];
-  ltoa(solenoidChronoOff.elapsed()/1000, buffer, 10);
+  ltoa(solenoidChronoOff.elapsed(), buffer, 10);
   // solenoidChronoOff.elapsed().toCharArray(buffer, 10);
   return buffer;
 }
@@ -506,7 +551,15 @@ String printLightState(){
     return "off";
   }
 }
-
+void syncArdTime(){
+  Time holderTime = rtc.getTime();
+  setTime(holderTime.hour, holderTime.min, holderTime.sec, holderTime.date, holderTime.mon, holderTime.year); 
+  // setDate(uint8_t date, uint8_t mon, uint16_t year);
+  currentT = now();
+}
+String returnNull(){
+  return "";
+}
 void toggleSolenoidOn(int x) {
   int minZero = max(x - 1, 0); //ensures >=0 array pointer
   //not already on? previous run finished? previous not running?
@@ -561,10 +614,13 @@ String printLightPWM() {
 }
 
 String printLightsOn(){
-  String lightsOnDisp;
-  lightsOnDisp.concat(hour(tLightStart)); lightsOnDisp.concat(":"); 
-  lightsOnDisp.concat(minute(tLightStart)); lightsOnDisp.concat(":"); 
-  lightsOnDisp.concat(second(tLightStart));
+  char buffer[20];
+  sprintf(buffer, "%02d:%02d:%02d", hour(tLightStart), minute(tLightStart), second(tLightStart));
+
+  // lightsOnDisp.concat(hour(tLightStart)); lightsOnDisp.concat(":"); 
+  // lightsOnDisp.concat(minute(tLightStart)); lightsOnDisp.concat(":"); 
+  // lightsOnDisp.concat(second(tLightStart));
+  String lightsOnDisp = String(buffer);
   if (isAM(tLightStart)){
     lightsOnDisp.concat(" AM");
   } else {
@@ -574,10 +630,12 @@ String printLightsOn(){
   return lightsOnDisp;
 }
 String printLightsOff(){
-  String lightsOffDisp;
-  lightsOffDisp.concat(hour(tLightEnd)); lightsOffDisp.concat(":"); 
-  lightsOffDisp.concat(minute(tLightEnd)); lightsOffDisp.concat(":"); 
-  lightsOffDisp.concat(second(tLightEnd));
+  char buffer[20];
+  sprintf(buffer, "%02d:%02d:%02d", hour(tLightEnd), minute(tLightEnd), second(tLightEnd));
+  // lightsOffDisp.concat(hour(tLightEnd)); lightsOffDisp.concat(":"); 
+  // lightsOffDisp.concat(minute(tLightEnd)); lightsOffDisp.concat(":"); 
+  // lightsOffDisp.concat(second(tLightEnd));
+  String lightsOffDisp = String(buffer);
   if (isAM(tLightEnd)){
     lightsOffDisp.concat(" AM");
   } else {
@@ -639,6 +697,15 @@ void setLight() {
       Serial.println("                                                  LIGHTS OUT");
     }
   }
+}
+
+void printLCDBG(){
+  myGLCD.setColor(VGA_BLUE);
+  myGLCD.fillRect(0, 0, 200, 14);
+  myGLCD.fillRect(0, 105, 200, 118);
+  myGLCD.setColor(20,20,20);
+  myGLCD.fillRect(200, 0, 319, 240);
+  myGLCD.setColor(VGA_WHITE);
 }
 
 
